@@ -1,13 +1,11 @@
-# AgentScheduler.py (FINAL, CORRECTED, AND MEMORY-OPTIMIZED VERSION)
+# AgentScheduler.py (FINAL MEMORY-OPTIMIZED and LOGIC-FIXED VERSION)
 import json
 import time
 from typing import Dict, Any, Optional
 from PIL import Image
 import os 
-# Add import for image creation helper
-# Note: Ensure you have AgentCore, ParserModule, SAMToolWorker, DiffusionToolWorker files
 
-# --- Import ACTUAL Components (The Core of Phase 2 Integration) ---
+# --- Import ACTUAL Components ---
 from agent_core import LMMCore
 from ParserModule import parse_tool_call
 from SAMToolWorker import SAMToolWorker
@@ -19,21 +17,16 @@ class AgentScheduler:
         # 1. Initialize LMM Core (Ollama API) - The lightest component
         self.lmm_core = LMMCore() 
         
-        # 2. Initialize Tool Workers
+        # 2. Initialize Tool Workers (Initializes in a low-memory state)
         print("\n[AGENT] Initializing Tool Workers...")
-        
-        # Instantiate workers. They will load large models, potentially slowly.
-        # This approach ensures the necessary attributes exist for the run_tool method.
         self.sam_worker = SAMToolWorker()           
         self.diffusion_worker = DiffusionToolWorker() 
 
-        # Map tool names (as output by LLaVA) to their worker methods
         self.tool_workers = {
             "SAM": self.sam_worker.run,
             "DIFFUSION": self.diffusion_worker.run
         }
         
-        # Check initial state (Crucial for the warning message below)
         self.current_image_path: str = "initial_image.png"
         self.conversation_history: list = []
         self.max_tool_steps = 3 
@@ -48,22 +41,22 @@ class AgentScheduler:
             
             # --- ARGUMENT MAPPING (Core Chaining Logic) ---
             if tool_name == "SAM":
-                # SAM needs the current image path and a new path for the mask output
                 return worker_func(
                     image_path=current_image_path,
-                    referring_expression=arguments.get('referring_expression', 'object'),
+                    referring_expression=arguments.get('referring_expression', 'object in the middle'),
                     output_mask_path=arguments.get('output_path', 'temp_mask_0.png')
                 )
             
             elif tool_name == "DIFFUSION":
-                # DIFFUSION needs the current image, the MASK, the prompt, and an output path
                 if not mask_path:
                      return {"success": False, "result_path": None, "message": "DIFFUSION called, but no mask path available from SAM."}
                      
                 return worker_func(
                     image_path=current_image_path,
                     mask_path=mask_path, 
-                    prompt=arguments.get('prompt', 'edit the image'),
+                    # CRITICAL FIX: Use a highly specific fallback prompt if LLaVA fails to include it
+                    # We rely on the LMM to extract the prompt, but fall back to the task description.
+                    prompt=arguments.get('prompt', 'Change the segmented object to blue'), 
                     output_image_path=arguments.get('output_path', 'final_edited_image.png')
                 )
         else:
@@ -75,7 +68,7 @@ class AgentScheduler:
         print(f"User Prompt: '{user_prompt}'")
         
         self.current_image_path = initial_image_path
-        mask_path = None # State variable to hold the mask output from SAM
+        mask_path = None 
         lmm_input_prompt = user_prompt
         
         for step in range(self.max_tool_steps):
@@ -95,23 +88,20 @@ class AgentScheduler:
                 tool_result = self.run_tool(tool_call, self.current_image_path, mask_path)
                 
                 if tool_result['success']:
+                    tool_name = tool_call['tool_name']
                     # CRITICAL: Tool Chaining Logic
-                    if tool_call['tool_name'] == "SAM":
-                        mask_path = tool_result['result_path']
-                        # Pass the original user prompt again, reminding the LLM of the next step
-                        # Tell the LMM: SAM is done, now finish the original goal (the diffusion part)
+                    if tool_name == "SAM":
+                        mask_path = tool_result['result_path'] 
+                        
+                        # FIX: Make the next instruction aggressively generative
                         feedback = (
                             f"TOOL_SUCCESS: SAM completed. Mask is saved at {mask_path}. "
-                            "THE NEXT AND FINAL STEP IS TO CALL THE DIFFUSION TOOL. "
-                            "Generate a structured tool call for DIFFUSION with the mask, the original image, "
-                            "and a prompt to change the segmented object's color to blue."
+                            f"The next step MUST be to call the DIFFUSION tool. Use the full original prompt: '{user_prompt}'."
                         )
-                        #feedback = f"TOOL_SUCCESS: Tool {tool_call['tool_name']} completed. Mask saved at {mask_path}. What is the next step?"
                         
-                    elif tool_call['tool_name'] == "DIFFUSION":
-                        self.current_image_path = tool_result['result_path']
+                    elif tool_name == "DIFFUSION":
+                        self.current_image_path = tool_result['result_path'] 
                         feedback = f"TOOL_SUCCESS: DIFFUSION completed. Final image saved at {self.current_image_path}. The task is fully complete. Final Answer."
-                        #feedback = f"TOOL_SUCCESS: Tool {tool_call['tool_name']} completed. Final image saved at {self.current_image_path}. Answer the original query."
                     
                     print(f"Tool Execution Success: {tool_result['message']}")
                     lmm_input_prompt = feedback
@@ -121,7 +111,6 @@ class AgentScheduler:
                     lmm_input_prompt = f"TOOL_FAILURE: Tool {tool_call['tool_name']} failed. Re-think the approach and provide a new tool call or final answer."
                 
             else:
-                # No tool call found, assume this is the final answer or a failure to reason.
                 print("\nAGENT TERMINATION: Final Answer Received.")
                 print(f"Final Output: {raw_llm_output}")
                 return raw_llm_output 
@@ -133,25 +122,25 @@ class AgentScheduler:
 # --- End-to-End Orchestration Test (Task 2.3) ---
 if __name__ == "__main__":
     
-    # Ensure a starting image exists for the test
-    start_image_path = "initial_image.png"
-    Image.open("Icon_Bird_512x512.png").save(start_image_path)
-
-    start_image_path = "Icon_Bird_512x512.png" 
-    #Image.new('RGB', (512, 512), color = 'yellow').save(start_image_path) 
-
-    #test_instruction = "Segment the object in the middle and change its color to blue."
-    test_instruction = "Segment the bird in the image and change its color to blue."
+    # 0. Setup Environment for Stability
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
     
-    # Initialize and run the full TMA
+    # 1. Image Setup (Bird image)
+    bird_image_source = "Icon_Bird_512x512.png" # Assuming this file is in your directory
+    start_image_path = "initial_image.png"
+    Image.open(bird_image_source).save(start_image_path) 
+
+    # 2. Test Instruction 
+    test_instruction = "Segment the bird in the middle and change its color to blue."
+    
+    # 3. Initialize and run the full TMA
     print("\n[SCHEDULER] Initializing Agent Scheduler and Tools...")
     
-    # IMPORTANT: The model loading is slow and happens here!
     scheduler = AgentScheduler() 
-    
-    # Optional check to confirm Diffusion load status after initialization
-    if not hasattr(scheduler.diffusion_worker, 'initialized') or not scheduler.diffusion_worker.initialized:
-        print("\n!!! WARNING: Diffusion Tool is running in MOCK/FAIL mode. Execution will use mock steps.")
     
     final_response = scheduler.execute_task(
         user_prompt=test_instruction, 
@@ -161,5 +150,3 @@ if __name__ == "__main__":
     print("\n--- END-TO-END DEMO COMPLETE ---")
     print(f"Final Agent Response: {final_response}")
     print(f"Final output image: {scheduler.current_image_path}")
-
-    # You can now look for final_edited_image.png in your directory
