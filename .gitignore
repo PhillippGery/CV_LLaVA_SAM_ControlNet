@@ -1,0 +1,21 @@
+# Virtual Environment
+tma_env/
+.venv/
+venv/
+
+models/
+
+# OS and Cache
+.DS_Store
+__pycache__/
+*.pyc
+
+# Large Files (Models, Data, Documents)
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.pdf
+*.zip
+*.tar.gz
+*.onnx
