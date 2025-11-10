@@ -83,6 +83,22 @@ class LMMCore:
 
         except requests.exceptions.RequestException as e:
             return f"Connection Error to Ollama: {e}"
+        
+        
+    def unload(self):
+        """Unloads the model from Ollama's memory to free system resources."""
+        print(f"-> Unloading {self.model_name} from Ollama memory...")
+        unload_url = "http://localhost:11434/api/unload"
+        data = {"model": self.model_name}
+        try:
+            # Ollama requires the model name to be included in the request body for unload
+            response = requests.post(unload_url, json=data, timeout=5)
+            if response.status_code == 200:
+                print(f"   Model {self.model_name} successfully unloaded.")
+            else:
+                print(f"   WARNING: Failed to unload model. Status {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            print(f"   WARNING: Unload API call failed: {e}")
 
 # Required for image handling in the final version
 import io 

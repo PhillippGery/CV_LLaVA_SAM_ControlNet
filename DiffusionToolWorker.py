@@ -72,7 +72,7 @@ class DiffusionToolWorker:
                     prompt=prompt,
                     image=image,
                     mask_image=mask_image,
-                    num_inference_steps=5,  # Using your preferred 100 steps
+                    num_inference_steps=200,  # Using your preferred 100 steps
                     guidance_scale=7.5
                 ).images[0]
                 
@@ -100,5 +100,26 @@ class DiffusionToolWorker:
             self.unload() # CRITICAL: Unload model after execution
 
 if __name__ == "__main__":
-    # Test block remains the same
-    pass
+    import torch 
+    
+    # 1. Setup dummy files (Requires a dummy image and the mask from the SAM test)
+    if not os.path.exists("test_segment_mask.png"):
+        print("Pre-requisite 'test_segment_mask.png' missing. Please run SAMToolWorker.py first.")
+    else:
+        # Create a dummy image 
+        Image.new('RGB', (512, 512), color = 'yellow').save("temp_input_diff.png")
+        
+        worker = DiffusionToolWorker()
+        
+        # 2. Test execution (This will be SLOW, even with low steps!)
+        result = worker.run(
+            image_path="temp_input_diff.png",
+            mask_path="test_segment_mask.png",
+            prompt="A blue wooden car",
+        )
+        
+        print("\n--- Diffusion Worker Test Result ---")
+        print(result)
+        
+        if result['success'] and os.path.exists("test_diffusion_output.png"):
+            print("SUCCESS: Output image file created and path returned.")

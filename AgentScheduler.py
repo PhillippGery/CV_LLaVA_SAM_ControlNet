@@ -132,7 +132,8 @@ if __name__ == "__main__":
     # 1. Image Setup (Bird image)
     bird_image_source = "Icon_Bird_512x512.png" # Assuming this file is in your directory
     start_image_path = "initial_image.png"
-    Image.open(bird_image_source).save(start_image_path) 
+    #Image.open(bird_image_source).save(start_image_path)
+    Image.new('RGB', (512, 512), color = 'yellow').save(start_image_path) 
 
     # 2. Test Instruction 
     test_instruction = "Segment the bird in the middle and change its color to blue."
